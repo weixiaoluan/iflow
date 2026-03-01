@@ -8,6 +8,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('config_manager.py', '.'),
+        ('strip_tools_proxy.py', '.'),
         ('engine/cli-proxy-api.exe', 'engine'),
         ('engine/config.yaml', 'engine'),
         ('engine/static', 'engine/static'),

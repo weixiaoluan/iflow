@@ -19,6 +19,7 @@ import customtkinter as ctk
 import yaml
 
 from config_manager import default_cliproxy_config, save_cliproxy_config, save_openclaw_config
+from strip_tools_proxy import start_strip_proxy
 
 # ---------------------------------------------------------------------------
 # Windows 7+ 兼容性
@@ -636,8 +637,11 @@ class App(ctk.CTk):
         port = self._get_port()
         apikey = self._get_apikey()
 
+        # CLIProxyAPI 运行在内部端口（port+1），strip-tools 代理运行在用户端口（port）
+        internal_port = port + 1
+
         cfg = default_cliproxy_config()
-        cfg["port"] = port
+        cfg["port"] = internal_port
         cfg["api-keys"] = [apikey]
         proxy = self._proxy_var.get().strip()
         if proxy:
@@ -651,7 +655,7 @@ class App(ctk.CTk):
             return
 
         try:
-            self._append_log(f"[启动] {exe} --config {cfg_path}")
+            self._append_log(f"[启动] {exe} --config {cfg_path}  (内部端口: {internal_port})")
             self._proxy_proc = subprocess.Popen(
                 [exe, "--config", cfg_path],
                 cwd=os.path.dirname(exe),
@@ -661,6 +665,14 @@ class App(ctk.CTk):
                 encoding="utf-8",
                 errors="replace",
             )
+
+            # 启动 strip-tools 反向代理（剥离 tools 参数，iFlow 不支持 function calling）
+            try:
+                self._strip_proxy_server = start_strip_proxy(port, internal_port)
+                self._append_log(f"[启动] strip-tools 代理  端口: {port} → {internal_port}")
+            except Exception as e:
+                self._append_log(f"[警告] strip-tools 代理启动失败: {e}，将直连引擎")
+
             self._btn_start.configure(state="disabled")
             self._btn_stop.configure(state="normal")
             self._srv_status.configure(text="● 运行中", text_color="#4ecb71")
@@ -678,6 +690,13 @@ class App(ctk.CTk):
 
     def _stop_proxy(self):
         self._stop_health_check()
+        # 停止 strip-tools 代理
+        if hasattr(self, "_strip_proxy_server") and self._strip_proxy_server:
+            try:
+                self._strip_proxy_server.shutdown()
+            except Exception:
+                pass
+            self._strip_proxy_server = None
         if self._proxy_proc:
             try:
                 self._proxy_proc.terminate()
