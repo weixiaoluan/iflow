@@ -6,4 +6,3 @@ dist/
 installer_output/
 *.spec.bak
 main.py.bak
-engine/cli-proxy-api.exe
