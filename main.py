@@ -878,12 +878,19 @@ class App(ctk.CTk):
         }
 
     def _merge_openclaw_config(self, existing):
-        """将 cliproxy provider 合并到现有 OpenClaw 配置中，保留所有原有设置"""
+        """将 cliproxy provider 合并到现有 OpenClaw 配置中，保留所有原有设置
+        
+        只修改 AI 模型相关的配置:
+        - models.mode / models.providers.cliproxy
+        - agents.defaults.model.primary
+        - agents.defaults.models 中的 cliproxy/* 条目
+        其他配置（auth/channels/gateway/plugins/hooks等）完全不动
+        """
         model = self._get_model()
         model_ref = f"cliproxy/{model}"
         provider = self._build_cliproxy_provider()
 
-        # 确保 models.providers 路径存在
+        # ---- models.providers.cliproxy ----
         if "models" not in existing:
             existing["models"] = {}
         if "mode" not in existing["models"]:
@@ -892,7 +899,7 @@ class App(ctk.CTk):
             existing["models"]["providers"] = {}
         existing["models"]["providers"]["cliproxy"] = provider
 
-        # 确保 agents.defaults.models 中注册了模型
+        # ---- agents.defaults ----
         if "agents" not in existing:
             existing["agents"] = {}
         if "defaults" not in existing["agents"]:
@@ -900,10 +907,15 @@ class App(ctk.CTk):
         defaults = existing["agents"]["defaults"]
         if "models" not in defaults:
             defaults["models"] = {}
-        if model_ref not in defaults["models"]:
-            defaults["models"][model_ref] = {}
 
-        # 设置 primary model，确保 OpenClaw 知道使用哪个模型
+        # 清理旧的 cliproxy/* 模型注册（避免残留失效条目）
+        stale = [k for k in defaults["models"] if k.startswith("cliproxy/")]
+        for k in stale:
+            del defaults["models"][k]
+        # 注册当前选择的模型
+        defaults["models"][model_ref] = {}
+
+        # 设置 primary model
         if "model" not in defaults:
             defaults["model"] = {}
         defaults["model"]["primary"] = model_ref
@@ -1012,21 +1024,30 @@ class App(ctk.CTk):
             messagebox.showerror("错误", f"导出失败: {e}")
 
     def _copy_openclaw_json(self):
-        """复制 openclaw config set 命令到剪贴板"""
-        port = self._get_port()
-        apikey = self._get_apikey()
+        """复制 AI 模型相关的 JSON 配置片段到剪贴板"""
         model = self._get_model()
         model_ref = f"cliproxy/{model}"
-        provider_json = json.dumps(self._build_cliproxy_provider(), ensure_ascii=False)
-        cmds = (
-            f'openclaw config set models.mode \'"merge"\'\n'
-            f'openclaw config set models.providers.cliproxy \'{provider_json}\'\n'
-            f'openclaw config set agents.defaults.model.primary \'"{model_ref}"\'\n'
-            f'openclaw config set agents.defaults.models."{model_ref}" \'{{}}\'\n'
-            f'openclaw gateway --force'
-        )
-        self._copy(cmds)
-        self._set_status("已复制 OpenClaw 配置命令到剪贴板（粘贴到终端执行即可）")
+        snippet = {
+            "models": {
+                "mode": "merge",
+                "providers": {
+                    "cliproxy": self._build_cliproxy_provider()
+                }
+            },
+            "agents": {
+                "defaults": {
+                    "model": {
+                        "primary": model_ref,
+                        "fallbacks": []
+                    },
+                    "models": {
+                        model_ref: {}
+                    }
+                }
+            }
+        }
+        self._copy(json.dumps(snippet, indent=2, ensure_ascii=False))
+        self._set_status("已复制 OpenClaw JSON 配置到剪贴板")
 
     # ==================================================================
     # 配置教程弹窗
